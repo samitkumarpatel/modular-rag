@@ -1,5 +1,6 @@
 # modular-rag
 
+[Inspired from](https://github.com/ThomasVitale/modular-rag/blob/main/README.md)
 
 ### Run a local llm
 ```shell
