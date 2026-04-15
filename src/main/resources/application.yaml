@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: modular-rag
+  ai:
+    mistralai:
+      api-key: "${MISTRALAI_API_KEY:fake}"
+      chat:
+        base-url: http://localhost:11434
+        options:
+          model: mistral
