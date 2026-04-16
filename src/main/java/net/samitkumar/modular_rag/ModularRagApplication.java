@@ -3,6 +3,8 @@ package net.samitkumar.modular_rag;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
 import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
@@ -12,6 +14,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.RouterFunctions;
 import org.springframework.web.servlet.function.ServerRequest;
@@ -19,6 +22,7 @@ import org.springframework.web.servlet.function.ServerResponse;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.springframework.util.StringUtils.hasText;
 import static org.springframework.web.servlet.function.RequestPredicates.contentType;
@@ -31,12 +35,22 @@ public class ModularRagApplication {
 	}
 
 	@Bean
-	ChatClient chatClient(ChatClient.Builder chatClientBuilder) {
+	RestClient  restClient(RestClient.Builder restClientBuilder) {
+		return restClientBuilder
+				.build();
+	}
+
+	@Bean
+	ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory) {
 		var ragAdvisor = RetrievalAugmentationAdvisor.builder()
 				.documentRetriever(new MockDocumentRetriever())
 				.build();
+
 		return chatClientBuilder
-				.defaultAdvisors(ragAdvisor)
+				.defaultAdvisors(
+						ragAdvisor,
+						MessageChatMemoryAdvisor.builder(chatMemory).build()
+				)
 				.build();
 	}
 
@@ -55,7 +69,7 @@ class MockDocumentRetriever implements DocumentRetriever {
 	@Override
 	public List<Document> retrieve(Query query) {
 		return List.of(
-				Document.builder().text("My name is Samit and I'm very Old").build()
+				Document.builder().metadata(Map.of("about", "Samit")).text("I'm Samit. I'm 50 Yrs Old. I don't sing and Dance ").build()
 		);
 	}
 }
@@ -65,11 +79,10 @@ class MockDocumentRetriever implements DocumentRetriever {
 class ChatHandler {
 	private final ChatClient chatClient;
 
-	@SneakyThrows
 	public ServerResponse chat(ServerRequest request) {
-		var question = request
-				.body(Map.class)
-				.computeIfAbsent("question", k -> "").toString();
+		var body = extractBody(request);
+		var question = body.get("question");
+		var id = body.get("id");
 
 		if(!hasText(question)) {
 			return ServerResponse.badRequest().body("Missing 'question' field in request body");
@@ -77,16 +90,25 @@ class ChatHandler {
 
 		var llmReply = chatClient
 				.prompt(question)
+				.advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, id))
 				.call()
 				.content();
-		return  ServerResponse.ok().body(llmReply);
+		return  ServerResponse.ok().body(Map.of("id", id, "answer", llmReply));
 	}
 
 	@SneakyThrows
+	Map<String, String> extractBody(ServerRequest request) {
+		var body = request.body(Map.class);
+		assert body.isEmpty() : "Expected a JSON body with 'question' and optional 'id' fields";
+		var question = body.computeIfAbsent("question", k -> "").toString();
+		var id = body.computeIfAbsent("id", k -> UUID.randomUUID()).toString();
+		return Map.of("question", question, "id", id);
+	}
+
 	public ServerResponse chatStream(ServerRequest request) {
-		var question = request
-				.body(Map.class)
-				.computeIfAbsent("question", k -> "").toString();
+		var body = extractBody(request);
+		var question = body.get("question");
+		var id = body.get("id");
 
 		if(!hasText(question)) {
 			return ServerResponse.badRequest().body("Missing 'question' field in request body");
@@ -94,12 +116,14 @@ class ChatHandler {
 
 		var flux = chatClient
 				.prompt(question)
+				.advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, id))
 				.stream()
 				.content();
 
 		return ServerResponse
 				.ok()
 				.contentType(MediaType.APPLICATION_NDJSON)
+				.header("X-Conversation-ID", id)
 				.stream(s -> flux.subscribe(token -> {
 					token = token.replace("\"", "\\\"");
 					try {
