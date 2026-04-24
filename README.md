@@ -4,8 +4,12 @@ Inspired from [this repo](https://github.com/ThomasVitale/modular-rag/blob/main/
 
 ### Run a local llm
 ```shell
-docker run --rm -p 11434:11434 --name ollama ollama/ollama
-docker exec -it ollama ollama pull mistral && ollama list
+docker volume create ollama-mistral
+docker run --rm -p 11434:11434 --name ollama -v ollama-mistral:/root/.ollama/models ollama/ollama
+
+docker exec -it ollama ollama pull mistral \
+  && ollama pull nomic-embed-text \
+  && ollama list
 ```
 
 ### Run
@@ -24,3 +28,12 @@ http :8080/chat question="current time in Copenhagen"
 echo '{"question":"tell me a joke"}' | http --stream POST :8080/chat/stream Content-Type:application/json Accept:application/x-ndjson
 http --stream POST :8080/chat/stream Content-Type:application/json Accept:application/x-ndjson question='Tell me a joke'
 ```
+
+### Different types of RAG flows
+![image](./sequential-rag.png)
+
+---
+![image](./branching-rag.png)
+
+---
+[image](./conditional-rag.png)
